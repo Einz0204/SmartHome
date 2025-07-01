@@ -1,9 +1,9 @@
 import cv2
 import time
-from face_recognition import build_white_list_embeddings, recognize_face
 import os
 import datetime
 import openpyxl
+from face_recognition import build_white_list_embeddings, recognize_face
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 white_folder = os.path.join(BASE_DIR, 'white')
@@ -14,35 +14,35 @@ history_file = os.path.join(history_folder, 'history.xlsx')
 os.makedirs(history_folder, exist_ok=True)
 
 # 初始化資料庫
-print("Create an embedding database...")
+print("🔍 建立白名單資料庫...")
 database = build_white_list_embeddings()
-
 if not database:
-    print("Can't find any valid face data.")
+    print("❌ 沒有找到任何白名單人臉")
     exit()
 
-print("Data loaded successfully. Starting detection system...")
+print("✅ 資料庫載入成功，啟動系統...")
 cap = cv2.VideoCapture(0)
+
 access_granted_time = None
 countdown_seconds = 3
-last_logged_name = None
+recognized_name = None  # 紀錄誰被辨識
+unknown_triggered = False  # 控制 unknown 只執行一次截圖
 
 def log_to_excel(name):
     now = datetime.datetime.now()
     date_str = now.strftime('%Y%m%d')
     time_str = now.strftime('%H%M')
+    os.makedirs(history_folder, exist_ok=True)
 
-    # 如果檔案不存在，就建立新檔並寫入欄位標題
     if not os.path.exists(history_file):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = 'Access History'
-        ws.append(['Date', 'Time', 'Name'])  # 標題列
+        ws.append(['Date', 'Time', 'Name'])
     else:
         wb = openpyxl.load_workbook(history_file)
         ws = wb.active
 
-    # 寫入一筆新紀錄
     ws.append([date_str, time_str, name])
     wb.save(history_file)
 
@@ -53,45 +53,72 @@ while True:
 
     name, dist = recognize_face(frame, database)
 
-    if name == "Unknown":
-        label = "Refuse to entry"
-        color = (0, 0, 255)
-        access_granted_time = None
-        last_logged_name = None
+    if name != recognized_name:
+        recognized_name = name
+        access_granted_time = time.time() if name not in ["No face"] else None
+        unknown_triggered = False
 
-    #儲存截圖
-        unknown_folder = os.path.join(history_folder, 'unknown')
-        os.makedirs(unknown_folder, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        image_path = os.path.join(unknown_folder, f'unknown_{timestamp}.jpg')
-        cv2.imwrite(image_path, frame)
+    if name == "Unknown":
+        label = "❌ Refuse to entry (Exit in 3s)"
+        color = (0, 0, 255)
+        if access_granted_time is None:
+            access_granted_time = time.time()
+            recognized_name = "Unknown"
+        elapsed = int(time.time() - access_granted_time)
+        countdown = max(0, countdown_seconds - elapsed)
+        label += f" - {countdown}s"
+
+        # 截圖僅一次
+        if elapsed >= countdown_seconds:
+            if recognized_name == "Unknown":
+                # 在最後一刻截圖
+                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                unknown_folder = os.path.join(history_folder, 'unknown')
+                os.makedirs(unknown_folder, exist_ok=True)
+                path = os.path.join(unknown_folder, f'unknown_{timestamp}.jpg')
+                cv2.imwrite(path, frame)
+                print(f"📸 Unknown 截圖儲存於 {path}")
+
     elif name == "No face":
-        label = "Can't detect your face"
+        label = "😐 Can't detect face"
         color = (128, 128, 128)
         access_granted_time = None
-        last_logged_name = None
+        recognized_name = None
+        unknown_triggered = False
+
     else:
-         if access_granted_time is None:
-            access_granted_time = time.time()  # 設定起始時間
-         elapsed_time = time.time() - access_granted_time  # 計算經過時間
-         label = f"{name} welcome back ({elapsed_time:.1f}s)"
-         color = (0, 255, 0)
+        if access_granted_time is None:
+            access_granted_time = time.time()
+            recognized_name = name
+        elapsed = time.time() - access_granted_time
+        label = f"✅ {name} welcome ({elapsed:.1f}s)"
+        color = (0, 255, 0)
 
-    # 顯示標籤
-    cv2.putText(frame, label, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
-    # 正數計時
+    # 顯示文字與時間
+    cv2.putText(frame, label, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
     if access_granted_time:
-        elapsed = int(time.time() - access_granted_time)
-        cv2.putText(frame, f"Time passed: {elapsed}s", (30, 80),
+        elapsed = time.time() - access_granted_time
+        cv2.putText(frame, f"Timer: {elapsed:.1f}s", (30, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-        if access_granted_time and time.time() - access_granted_time >= 3.1:
-            print(f"{name} detection completed, turning off the system.")
+
+        # 經過倒數時間，進行紀錄與關閉
+        if elapsed >= countdown_seconds:
+            if recognized_name == "Unknown":
+                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                unknown_folder = os.path.join(history_folder, 'unknown')
+                os.makedirs(unknown_folder, exist_ok=True)
+                path = os.path.join(unknown_folder, f'unknown_{timestamp}.jpg')
+                cv2.imwrite(path, frame)
+                print(f"📸 Unknown 截圖儲存於 {path}")
+
+            log_to_excel(recognized_name)
+            print(f"📒 已記錄訪問：{recognized_name}")
+            print("🔚 系統自動關閉")
             break
 
     cv2.imshow("Access Control System", frame)
-
     if cv2.waitKey(1) & 0xFF == ord('q'):
+        print("🛑 手動關閉")
         break
 
 cap.release()
