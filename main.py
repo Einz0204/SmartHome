@@ -59,7 +59,7 @@ while True:
         access_granted_time = None
         last_logged_name = None
 
-    # 儲存截圖
+    #儲存截圖
         unknown_folder = os.path.join(history_folder, 'unknown')
         os.makedirs(unknown_folder, exist_ok=True)
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -71,13 +71,11 @@ while True:
         access_granted_time = None
         last_logged_name = None
     else:
-        label = f"{name} welcome back"
-        color = (0, 255, 0)
-        if access_granted_time is None:
-            access_granted_time = time.time()
-            if name != last_logged_name:
-                log_to_excel(name)
-                last_logged_name = name
+         if access_granted_time is None:
+            access_granted_time = time.time()  # 設定起始時間
+         elapsed_time = time.time() - access_granted_time  # 計算經過時間
+         label = f"{name} welcome back ({elapsed_time:.1f}s)"
+         color = (0, 255, 0)
 
     # 顯示標籤
     cv2.putText(frame, label, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
@@ -87,7 +85,7 @@ while True:
         elapsed = int(time.time() - access_granted_time)
         cv2.putText(frame, f"Time passed: {elapsed}s", (30, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-        if elapsed >= countdown_seconds:
+        if access_granted_time and time.time() - access_granted_time >= 3.1:
             print(f"{name} detection completed, turning off the system.")
             break
 
